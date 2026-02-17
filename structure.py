@@ -1,18 +1,15 @@
 import math
 from node import Node
 from spring import Spring
+import numpy as np
 
 
 class Structure:
     def __init__(self):
-        
         self.nodes = {}
         self.springs = {}
-
-        #Dictionary für Knoten und alle mit diesem verbundenen Federn
         self.node_spring_group = {}
 
-        # ID des ersten Knoten/Feder ist 0
         self._next_node_id = 0
         self._next_spring_id = 0
 
@@ -75,7 +72,7 @@ class Structure:
         L0 = math.sqrt(dx*dx + dz*dz)
 
         # Feder erzeugen
-        s = Spring(spring_id, i, j, EA, L0, tol=tol)
+        s = Spring(spring_id, i, j, EA, L0)
 
         self.springs[spring_id] = s
         self.node_spring_group.setdefault(i, set()).add(spring_id)
@@ -119,3 +116,66 @@ class Structure:
 
     def __repr__(self):
         return f"Structure(nodes={len(self.nodes)}, springs={len(self.springs)})"
+
+    def assemble_global_stiffness(self):
+        n = len(self.nodes)
+        size = 2 * n
+        K = np.zeros((size, size))
+
+        for s in self.springs.values():
+            k_local = s.local_stiffness(self)
+            i, j = s.i, s.j
+            
+            dofs = [
+                2*i, 2*i+1,
+                2*j, 2*j+1
+            ]
+
+            # Einfügen der lokalen Steifigkeitsmatrix in die globale Matrix
+            for a in range(4):
+                for b in range(4):
+                    K[dofs[a], dofs[b]] += k_local[a, b]
+
+        return K
+    
+    def assemble_force_vector(self):
+        n = len(self.nodes)
+        F = np.zeros(2*n)
+
+        for node in self.nodes.values():
+            F[2*node.id] = node.force[0]
+            F[2*node.id + 1] = node.force[1]
+
+        return F
+    
+    def solve(self):
+        K = self.assemble_global_stiffness()
+        F = self.assemble_force_vector()
+
+        fixed_dofs = []
+        for node in self.nodes.values():
+            if node.bc[0]:  # x fixiert
+                fixed_dofs.append(2*node.id)
+            if node.bc[1]:  # z fixiert
+                fixed_dofs.append(2*node.id + 1)
+
+        free_dofs = [i for i in range(len(F)) if i not in fixed_dofs]
+
+        K_reduced = K[np.ix_(free_dofs, free_dofs)]
+        F_reduced = F[free_dofs]
+
+        u = np.zeros(len(F))
+        u_free = np.linalg.solve(K_reduced, F_reduced)
+
+        for idx, dof in enumerate(free_dofs):
+            u[dof] = u_free[idx]
+
+        return u
+
+    def compute_strain_energies(self, u):
+        energies = {}
+
+        for sid, spring in self.springs.items():
+          energies[sid] = spring.strain_energy(self, u)
+
+        return energies
