@@ -24,6 +24,7 @@ if __name__ == "__main__":
 
 
     u = st.solve()
+
     print("Verschiebungen:")
     for i in range(len(u)//2):
         print(f"Node {i}: ux = {u[2*i]:.6f}, uz = {u[2*i+1]:.6f}")
@@ -35,3 +36,11 @@ if __name__ == "__main__":
     print("Dehnungsenergien:")
     for sid, energy in energies.items():
         print(f"Spring {sid}: {energy:.6f}")
+
+
+
+    u_from_solver_py = st.solve_with_solver_py()
+
+    print("Verschiebungen mit Solver.py:")
+    for i in range(len(u_from_solver_py)//2):
+        print(f"Node {i}: ux = {u_from_solver_py[2*i]:.6f}, uz = {u_from_solver_py[2*i+1]:.6f}")

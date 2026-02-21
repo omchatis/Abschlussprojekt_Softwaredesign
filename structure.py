@@ -2,6 +2,7 @@ import math
 from node import Node
 from spring import Spring
 import numpy as np
+from solver import solve as solve_with_solver_py
 
 
 class Structure:
@@ -148,18 +149,24 @@ class Structure:
 
         return F
     
+    
+    def fixed_dof_indices(self):
+        fixed_dofs = []
+        for n in self.nodes.values():
+            if n.bc[0]:  # x fix
+                fixed_dofs.append(2*n.id)
+            if n.bc[1]:  # z fix
+                fixed_dofs.append(2*n.id + 1)
+        return fixed_dofs
+
+
     def solve(self):
         K = self.assemble_global_stiffness()
         F = self.assemble_force_vector()
+        fixed_dofs = self.fixed_dof_indices()
 
-        fixed_dofs = []
-        for node in self.nodes.values():
-            if node.bc[0]:  # x fixiert
-                fixed_dofs.append(2*node.id)
-            if node.bc[1]:  # z fixiert
-                fixed_dofs.append(2*node.id + 1)
-
-        free_dofs = [i for i in range(len(F)) if i not in fixed_dofs]
+        fixed = set(fixed_dofs)
+        free_dofs = [i for i in range(len(F)) if i not in fixed]
 
         K_reduced = K[np.ix_(free_dofs, free_dofs)]
         F_reduced = F[free_dofs]
@@ -171,6 +178,15 @@ class Structure:
             u[dof] = u_free[idx]
 
         return u
+    
+    def solve_with_solver_py(self):
+        K = self.assemble_global_stiffness()
+        F = self.assemble_force_vector()
+        fixed_dof = self.fixed_dof_indices()
+
+        u_solver_py = solve_with_solver_py(K.copy(), F.copy(), fixed_dof)
+
+        return u_solver_py
 
     def compute_strain_energies(self, u):
         energies = {}

@@ -1,7 +1,6 @@
 import math
 import numpy as np
 
-import structure
 
 class Spring:
     def __init__(self, spring_id, i, j, EA, L0):
@@ -56,7 +55,7 @@ class Spring:
         L = (dx**2 + dz**2)**0.5
 
         c = dx / L if L > 0 else 0
-        s = dz / L
+        s = dz / L if L > 0 else 0
 
         ui = np.array([u[2*self.i], u[2*self.i+1]])
         uj = np.array([u[2*self.j], u[2*self.j+1]])
