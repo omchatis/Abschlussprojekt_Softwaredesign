@@ -118,21 +118,26 @@ class Structure:
     def __repr__(self):
         return f"Structure(nodes={len(self.nodes)}, springs={len(self.springs)})"
 
+    def _build_node_index(self):
+        node_ids = sorted(self.nodes.keys())
+        node_index = {nid: idx for idx, nid in enumerate(node_ids)}
+        return node_ids, node_index
+    
     def assemble_global_stiffness(self):
-        n = len(self.nodes)
-        size = 2 * n
+        node_ids, node_index = self._build_node_index()
+        size = 2 * len(node_ids)
         K = np.zeros((size, size))
 
         for s in self.springs.values():
             k_local = s.local_stiffness(self)
             i, j = s.i, s.j
-            
-            dofs = [
-                2*i, 2*i+1,
-                2*j, 2*j+1
-            ]
 
-            # Einfügen der lokalen Steifigkeitsmatrix in die globale Matrix
+            ii = node_index[i]
+            jj = node_index[j]
+
+            dofs = [2*ii, 2*ii+1, 2*jj, 2*jj+1]
+
+        # Einfügen der lokalen Steifigkeitsmatrix in die globale Matrix
             for a in range(4):
                 for b in range(4):
                     K[dofs[a], dofs[b]] += k_local[a, b]
@@ -140,25 +145,26 @@ class Structure:
         return K
     
     def assemble_force_vector(self):
-        n = len(self.nodes)
-        F = np.zeros(2*n)
+        node_ids, node_index = self._build_node_index()
+        F = np.zeros(2 * len(node_ids))
 
-        for node in self.nodes.values():
-            F[2*node.id] = node.force[0]
-            F[2*node.id + 1] = node.force[1]
+        for nid, node in self.nodes.items():
+            idx = node_index[nid]
+            F[2*idx]     = node.force[0]
+            F[2*idx + 1] = node.force[1]
 
         return F
     
-    
     def fixed_dof_indices(self):
+        node_ids, node_index = self._build_node_index()
         fixed_dofs = []
-        for n in self.nodes.values():
-            if n.bc[0]:  # x fix
-                fixed_dofs.append(2*n.id)
-            if n.bc[1]:  # z fix
-                fixed_dofs.append(2*n.id + 1)
+        for nid, n in self.nodes.items():
+            idx = node_index[nid]
+            if n.bc[0]:
+                fixed_dofs.append(2*idx)
+            if n.bc[1]:
+                fixed_dofs.append(2*idx + 1)
         return fixed_dofs
-
 
     def solve(self):
         K = self.assemble_global_stiffness()
@@ -190,8 +196,15 @@ class Structure:
 
     def compute_strain_energies(self, u):
         energies = {}
+        node_ids, node_index = self._build_node_index()
 
         for sid, spring in self.springs.items():
-          energies[sid] = spring.strain_energy(self, u)
+          energies[sid] = spring.strain_energy(self, u, node_index)
 
         return energies
+    
+    def prioritise_energies(self):
+
+        energies =self.compute_strain_energies()
+
+        sorted_energies = sorted(energies.items(), key=lambda x: x[1])

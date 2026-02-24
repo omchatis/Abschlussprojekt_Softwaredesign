@@ -46,7 +46,7 @@ class Spring:
             [-c*s, -s*s, c*s, s*s]
         ])
     
-    def strain_energy(self, structure, u):
+    def strain_energy(self, structure, u, node_index):
         ni = structure.nodes[self.i]
         nj = structure.nodes[self.j]
 
@@ -57,9 +57,11 @@ class Spring:
         c = dx / L if L > 0 else 0
         s = dz / L if L > 0 else 0
 
-        ui = np.array([u[2*self.i], u[2*self.i+1]])
-        uj = np.array([u[2*self.j], u[2*self.j+1]])
+        ii = node_index[self.i]
+        jj = node_index[self.j]
+
+        ui = np.array([u[2*ii], u[2*ii+1]])
+        uj = np.array([u[2*jj], u[2*jj+1]])
 
         delta_L = c*(uj[0] - ui[0]) + s*(uj[1] - ui[1])
-
         return 0.5 * self.k * delta_L**2
