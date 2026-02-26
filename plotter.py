@@ -11,14 +11,13 @@ def plot_structure_interactive(
 ):
     fig = go.Figure()
 
-    # ── 1. Unverformte Federn (schwarz) ──────────────────────────────────────
+    # ── 1. Unverformte Federn (hellblau) ─────────────────────────────────────
     for spring in structure.springs.values():
         ni = structure.nodes[spring.i]
         nj = structure.nodes[spring.j]
 
-        # Farbe nach Dehnungsenergie (optional)
-        color = "rgba(60,60,60,0.5)"
-        width = 1.5
+        color = "rgba(100,140,255,0.4)"
+        width = 1.0
         if strain_energies is not None:
             e = strain_energies.get(spring.id, 0)
             e_max = max(strain_energies.values()) if strain_energies else 1
@@ -57,25 +56,38 @@ def plot_structure_interactive(
                 showlegend=False
             ))
 
-    # ── 3. Knoten ─────────────────────────────────────────────────────────────
+    # ── 3. Knoten – verschoben wenn Simulation vorhanden ─────────────────────
     x_nodes, y_nodes, labels, colors, sizes = [], [], [], [], []
 
     for node in structure.nodes.values():
-        x_nodes.append(node.x)
-        y_nodes.append(node.z)
-        labels.append(f"Node {node.id}<br>x={node.x}, z={node.z}<br>bc={node.bc}<br>F={node.force}")
+        if displacements is not None:
+            # Verschobene Position
+            px = node.x + scale * displacements[2 * node.id]
+            pz = node.z + scale * displacements[2 * node.id + 1]
+        else:
+            px = node.x
+            pz = node.z
+
+        x_nodes.append(px)
+        y_nodes.append(pz)
+        labels.append(
+            f"Node {node.id}<br>"
+            f"x₀={node.x}, z₀={node.z}<br>"
+            f"bc={node.bc}<br>"
+            f"F={node.force}"
+        )
 
         if node.id == selected_node:
             colors.append("#FF3B3B")
             sizes.append(16)
         elif node.bc[0] or node.bc[1]:
-            colors.append("#F59E0B")   # gelb = gelagert
+            colors.append("#F59E0B")
             sizes.append(13)
         elif abs(node.force[0]) > 0 or abs(node.force[1]) > 0:
-            colors.append("#10B981")   # grün = belastet
+            colors.append("#10B981")
             sizes.append(13)
         else:
-            colors.append("#3B82F6")   # blau = frei
+            colors.append("#3B82F6")
             sizes.append(11)
 
     fig.add_trace(go.Scatter(

@@ -129,10 +129,10 @@ with st.sidebar:
         else:
             st.warning("Zuerst Grid erzeugen.")
 
+    scale = 1.0
     if st.session_state.displacements is not None:
-        scale = st.slider("Verformung skalieren", 0.0, 50.0, 10.0)
-    else:
-        scale = 10.0
+        max_u = float(__import__('numpy').max(__import__('numpy').abs(st.session_state.displacements)))
+        st.caption(f"Max. Verschiebung: {max_u:.4f}")
 
     st.divider()
 
@@ -183,18 +183,16 @@ with st.sidebar:
                 st.text(line)
 
 
-
     # ── Knoten auswählen ──────────────────────────────────────────────────────
     if st.session_state.structure is not None:
         st.divider()
         st.markdown("## 🔍 Knoten auswählen")
-        max_id = max(st.session_state.structure.nodes.keys())
-        # Sicherstellen dass manual_id nicht größer als max_id ist
-        st.session_state.manual_id = min(st.session_state.manual_id, max_id)
+        max_node_id = max(st.session_state.structure.nodes.keys())
+        st.session_state.manual_id = min(st.session_state.manual_id, max_node_id)
         st.session_state.manual_id = st.number_input(
             "Knoten ID eingeben",
             min_value=0,
-            max_value=max_id,
+            max_value=max_node_id,
             value=st.session_state.manual_id,
             step=1
         )
@@ -222,16 +220,17 @@ with st.sidebar:
             )
 
             col1, col2 = st.columns(2)
-            fix_x = col1.checkbox("Fixiere X", value=bool(node.bc[0]))
-            fix_z = col2.checkbox("Fixiere Z", value=bool(node.bc[1]))
-            Fx = st.number_input("Fx (horizontale Kraft)", value=float(node.force[0]))
-            Fz = st.number_input("Fz (vertikale Kraft)",   value=float(node.force[1]))
+            fix_x = col1.checkbox("Fixiere X", value=bool(node.bc[0]), key=f"fix_x_{node_id}")
+            fix_z = col2.checkbox("Fixiere Z", value=bool(node.bc[1]), key=f"fix_z_{node_id}")
+            Fx = st.number_input("Fx (horizontale Kraft)", value=float(node.force[0]), key=f"Fx_{node_id}")
+            Fz = st.number_input("Fz (vertikale Kraft)",   value=float(node.force[1]), key=f"Fz_{node_id}")
 
-            if st.button("✅ Änderungen übernehmen", use_container_width=True):
+            if st.button("✅ Änderungen übernehmen", use_container_width=True, key=f"apply_{node_id}"):
                 node.bc    = (fix_x, fix_z)
                 node.force = (Fx, Fz)
                 st.session_state.displacements   = None
                 st.session_state.strain_energies = None
+                # selected_node bleibt erhalten!
                 st.success(f"Knoten {node_id} aktualisiert")
 
 # ── Hauptbereich ──────────────────────────────────────────────────────────────
@@ -262,8 +261,14 @@ else:
 
                 u = run_solver(structure)
                 if u is not None:
-                    ss.displacements   = u
-                    ss.strain_energies = structure.compute_strain_energies(u)
+                    # Abbruch wenn Verschiebungen numerisch explodieren
+                    max_u = float(np.max(np.abs(u)))
+                    if max_u > 1e6:
+                        ss.opt_running = False
+                        ss.opt_log.append(f"⚠️ Abbruch: max. Verschiebung={max_u:.2e} – Struktur instabil.")
+                    else:
+                        ss.displacements   = u
+                        ss.strain_energies = structure.compute_strain_energies(u)
                 else:
                     ss.opt_running = False
                     ss.opt_log.append("⛔ Simulation nach Entfernung fehlgeschlagen.")
