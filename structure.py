@@ -193,7 +193,7 @@ class Structure:
         u_solver_py = solve_with_solver_py(K.copy(), F.copy(), fixed_dof)
 
         return u_solver_py
-
+    
     def compute_strain_energies(self, u):
         energies = {}
         node_ids, node_index = self._build_node_index()
@@ -208,3 +208,19 @@ class Structure:
         energies =self.compute_strain_energies()
 
         sorted_energies = sorted(energies.items(), key=lambda x: x[1])
+
+    def current_locations_nodes(self, u, pos0, all_ids):
+        node_ids, node_index = self._build_node_index()
+        frame_current_locations_node = {}
+        
+        for nid in all_ids:
+            if nid not in self.nodes:
+                frame_current_locations_node[nid] = (np.nan, np.nan)
+            else:
+                idx = node_index[nid]
+                ux = u[2*idx]
+                uz = u[2*idx+1]
+                x0, z0 = pos0[nid]
+                frame_current_locations_node[nid] = (x0 + ux, z0 + uz)
+
+        return frame_current_locations_node
