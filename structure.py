@@ -201,8 +201,8 @@ class Structure:
 
         return u, node_ids, node_index
     
-    def compute_strain_energies(self, u, node_index):
-        
+    def compute_strain_energies(self, u):
+        node_ids, node_index = self._build_node_index()
         energies = {}
         for sid, spring in self.springs.items():
             energies[sid] = spring.strain_energy(self, u, node_index)

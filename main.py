@@ -54,7 +54,7 @@ if __name__ == "__main__":
         K = st.assemble_global_stiffness(node_ids, node_index)
         print("Symmetrisch:", np.allclose(K, K.T))
 
-        spring_energies = st.compute_strain_energies(u, node_index)
+        spring_energies = st.compute_strain_energies(u)
         print("Dehnungsenergien:")
         for sid, energy in spring_energies.items():
             print(f"Spring {sid}: {energy:.6f}")
