@@ -1,18 +1,16 @@
 import math
 from node import Node
 from spring import Spring
+import numpy as np
+from solver import solve as solve_with_solver_py
 
 
 class Structure:
     def __init__(self):
-        
         self.nodes = {}
         self.springs = {}
-
-        #Dictionary für Knoten und alle mit diesem verbundenen Federn
         self.node_spring_group = {}
 
-        # ID des ersten Knoten/Feder ist 0
         self._next_node_id = 0
         self._next_spring_id = 0
 
@@ -75,7 +73,7 @@ class Structure:
         L0 = math.sqrt(dx*dx + dz*dz)
 
         # Feder erzeugen
-        s = Spring(spring_id, i, j, EA, L0, tol=tol)
+        s = Spring(spring_id, i, j, EA, L0)
 
         self.springs[spring_id] = s
         self.node_spring_group.setdefault(i, set()).add(spring_id)
@@ -119,3 +117,110 @@ class Structure:
 
     def __repr__(self):
         return f"Structure(nodes={len(self.nodes)}, springs={len(self.springs)})"
+
+    def _build_node_index(self):
+        node_ids = sorted(self.nodes.keys())
+        node_index = {nid: idx for idx, nid in enumerate(node_ids)}
+        return node_ids, node_index
+    
+    def assemble_global_stiffness(self):
+        node_ids, node_index = self._build_node_index()
+        size = 2 * len(node_ids)
+        K = np.zeros((size, size))
+
+        for s in self.springs.values():
+            k_local = s.local_stiffness(self)
+            i, j = s.i, s.j
+
+            ii = node_index[i]
+            jj = node_index[j]
+
+            dofs = [2*ii, 2*ii+1, 2*jj, 2*jj+1]
+
+        # Einfügen der lokalen Steifigkeitsmatrix in die globale Matrix
+            for a in range(4):
+                for b in range(4):
+                    K[dofs[a], dofs[b]] += k_local[a, b]
+
+        return K
+    
+    def assemble_force_vector(self):
+        node_ids, node_index = self._build_node_index()
+        F = np.zeros(2 * len(node_ids))
+
+        for nid, node in self.nodes.items():
+            idx = node_index[nid]
+            F[2*idx]     = node.force[0]
+            F[2*idx + 1] = node.force[1]
+
+        return F
+    
+    def fixed_dof_indices(self):
+        node_ids, node_index = self._build_node_index()
+        fixed_dofs = []
+        for nid, n in self.nodes.items():
+            idx = node_index[nid]
+            if n.bc[0]:
+                fixed_dofs.append(2*idx)
+            if n.bc[1]:
+                fixed_dofs.append(2*idx + 1)
+        return fixed_dofs
+
+    def solve(self):
+        K = self.assemble_global_stiffness()
+        F = self.assemble_force_vector()
+        fixed_dofs = self.fixed_dof_indices()
+
+        fixed = set(fixed_dofs)
+        free_dofs = [i for i in range(len(F)) if i not in fixed]
+
+        K_reduced = K[np.ix_(free_dofs, free_dofs)]
+        F_reduced = F[free_dofs]
+
+        u = np.zeros(len(F))
+        u_free = np.linalg.solve(K_reduced, F_reduced)
+
+        for idx, dof in enumerate(free_dofs):
+            u[dof] = u_free[idx]
+
+        return u
+    
+    def solve_with_solver_py(self):
+        K = self.assemble_global_stiffness()
+        F = self.assemble_force_vector()
+        fixed_dof = self.fixed_dof_indices()
+
+        u_solver_py = solve_with_solver_py(K.copy(), F.copy(), fixed_dof)
+
+        return u_solver_py
+    
+    def compute_strain_energies(self, u):
+        energies = {}
+        node_ids, node_index = self._build_node_index()
+
+        for sid, spring in self.springs.items():
+          energies[sid] = spring.strain_energy(self, u, node_index)
+
+        return energies
+    
+    def prioritise_energies(self):
+
+        energies =self.compute_strain_energies()
+
+        sorted_energies = sorted(energies.items(), key=lambda x: x[1])
+
+    def current_locations_nodes(self, u, pos0, all_ids):
+        node_ids, node_index = self._build_node_index()
+        frame_current_locations_node = {}
+        
+        for nid in all_ids:
+            if nid not in self.nodes:
+                frame_current_locations_node[nid] = (np.nan, np.nan)
+            else:
+                idx = node_index[nid]
+                ux = u[2*idx]
+                uz = u[2*idx+1]
+                x0, z0 = pos0[nid]
+                frame_current_locations_node[nid] = (x0 + ux, z0 + uz)
+
+        return frame_current_locations_node
