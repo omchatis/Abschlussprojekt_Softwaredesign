@@ -299,14 +299,21 @@ else:
             click_y = point.get("y")
 
             if click_x is not None and click_y is not None:
+                u = st.session_state.displacements
                 best_id, best_dist = None, float("inf")
                 for nid, node in st.session_state.structure.nodes.items():
-                    dist = (node.x - click_x) ** 2 + (node.z - click_y) ** 2
+                    if u is not None:
+                        px = node.x + u[2 * nid]
+                        pz = node.z + u[2 * nid + 1]
+                    else:
+                        px = node.x
+                        pz = node.z
+                    dist = (px - click_x) ** 2 + (pz - click_y) ** 2
                     if dist < best_dist:
                         best_dist = dist
                         best_id   = nid
 
-                if best_dist < 0.5 and best_id != st.session_state.selected_node:
+                if best_id is not None and best_id != st.session_state.selected_node:
                     st.session_state.selected_node = best_id
                     st.rerun()
 
