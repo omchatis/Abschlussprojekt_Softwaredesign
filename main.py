@@ -10,7 +10,7 @@ if __name__ == "__main__":
     n1 = st.add_node(1, 0)
     n2 = st.add_node(0, 1)
     n3 = st.add_node(1, 1, force=(0, -1))
-    n4 = st.add_node(2, 0, bc=(False, True))    # Loslager (nur z fixiert)
+    n4 = st.add_node(2, 0, bc=(False, True), force=(1, -1))    # Loslager (nur z fixiert)
     n5 = st.add_node(2, 1)
 
 
@@ -42,42 +42,44 @@ if __name__ == "__main__":
     target_mass = math.ceil(mass_reduction_factor * start_mass)
 
     while len(st.nodes) > target_mass:
-        u = st.solve()
-
+        #u = st.solve()
+        u, node_ids, node_index = st.solve_with_solver_py()
+        '''
         print("Verschiebungen:")
-        for i in range(len(u)//2):
-            print(f"Node {i}: ux = {u[2*i]:.6f}, uz = {u[2*i+1]:.6f}")
-
-        K = st.assemble_global_stiffness()
+        node_ids, node_index = st._build_node_index()
+        for nid in node_ids:
+            idx = node_index[nid]
+            print(f"Node {nid}: ux = {u[2*idx]:.6f}, uz = {u[2*idx+1]:.6f}")
+        '''
+        K = st.assemble_global_stiffness(node_ids, node_index)
         print("Symmetrisch:", np.allclose(K, K.T))
 
-        spring_energies = st.compute_strain_energies(u)
+        spring_energies = st.compute_strain_energies(u, node_index)
         print("Dehnungsenergien:")
         for sid, energy in spring_energies.items():
             print(f"Spring {sid}: {energy:.6f}")
 
 
-
-        u_from_solver_py = st.solve_with_solver_py()
-
         print("Verschiebungen mit Solver.py:")
-        for i in range(len(u_from_solver_py)//2):
-            print(f"Node {i}: ux = {u_from_solver_py[2*i]:.6f}, uz = {u_from_solver_py[2*i+1]:.6f}")
+        for nid in node_ids:
+            idx = node_index[nid]
+            print(f"Node {nid}: ux = {u[2*idx]:.6f}, uz = {u[2*idx+1]:.6f}")
         
         
         ranked_nodal_energies = optimizer.rank_nodes_by_energy(st, spring_energies)
 
         removed_node = optimizer.remove_one_node(st, spring_energies)
         
+        u, node_ids, node_index = st.solve_with_solver_py()
         if removed_node is not None:
             print(f"Knoten {removed_node} wurde entfernt.")
             print("Aktuelle Knoten:", list(st.nodes.keys()))
-            Node_positions = st.current_locations_nodes(u, pos0, all_ids)
+            Node_positions = st.current_locations_nodes(u, node_index, pos0, all_ids)
             print(f"{Node_positions}")
 
         else:
             print("Es konnte kein Knoten entfernt werden.")
-            Node_positions = st.current_locations_nodes(u, pos0, all_ids)
+            Node_positions = st.current_locations_nodes(u, node_index, pos0, all_ids)
             print(f"{Node_positions}")
 
             break

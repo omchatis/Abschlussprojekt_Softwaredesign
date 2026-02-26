@@ -14,7 +14,6 @@ class Structure:
         self._next_node_id = 0
         self._next_spring_id = 0
 
-
     def add_node(self, x, z, bc=(False, False), force=(0.0, 0.0), node_id=None):
         
         # Fügt Knoten hinzu mit Standard: bc=(False,False) => frei, force=(0,0) => keine äußere Kraft.
@@ -102,6 +101,9 @@ class Structure:
         if node_id not in self.nodes:
             raise KeyError(f"Node {node_id} existiert nicht")
         return set(self.node_spring_group.get(node_id, set()))
+    
+    def number_of_incident_springs(self, node_id):
+        return len(self.node_spring_group.get(node_id, set()))
 
     def neighbors(self, node_id):
         
@@ -117,14 +119,15 @@ class Structure:
 
     def __repr__(self):
         return f"Structure(nodes={len(self.nodes)}, springs={len(self.springs)})"
-
+    
     def _build_node_index(self):
         node_ids = sorted(self.nodes.keys())
         node_index = {nid: idx for idx, nid in enumerate(node_ids)}
         return node_ids, node_index
+
     
-    def assemble_global_stiffness(self):
-        node_ids, node_index = self._build_node_index()
+    def assemble_global_stiffness(self, node_ids, node_index):
+        
         size = 2 * len(node_ids)
         K = np.zeros((size, size))
 
@@ -144,8 +147,8 @@ class Structure:
 
         return K
     
-    def assemble_force_vector(self):
-        node_ids, node_index = self._build_node_index()
+    def assemble_force_vector(self, node_ids, node_index):
+        
         F = np.zeros(2 * len(node_ids))
 
         for nid, node in self.nodes.items():
@@ -155,8 +158,8 @@ class Structure:
 
         return F
     
-    def fixed_dof_indices(self):
-        node_ids, node_index = self._build_node_index()
+    def fixed_dof_indices(self, node_index):
+        
         fixed_dofs = []
         for nid, n in self.nodes.items():
             idx = node_index[nid]
@@ -165,7 +168,8 @@ class Structure:
             if n.bc[1]:
                 fixed_dofs.append(2*idx + 1)
         return fixed_dofs
-
+    
+    '''
     def solve(self):
         K = self.assemble_global_stiffness()
         F = self.assemble_force_vector()
@@ -184,33 +188,27 @@ class Structure:
             u[dof] = u_free[idx]
 
         return u
-    
+    '''
+
     def solve_with_solver_py(self):
-        K = self.assemble_global_stiffness()
-        F = self.assemble_force_vector()
-        fixed_dof = self.fixed_dof_indices()
+        node_ids, node_index = self._build_node_index()
 
-        u_solver_py = solve_with_solver_py(K.copy(), F.copy(), fixed_dof)
+        K = self.assemble_global_stiffness(node_ids, node_index)
+        F = self.assemble_force_vector(node_ids, node_index)
+        fixed_dof = self.fixed_dof_indices(node_index)
 
-        return u_solver_py
+        u = solve_with_solver_py(K.copy(), F.copy(), fixed_dof)
+
+        return u, node_ids, node_index
     
-    def compute_strain_energies(self, u):
+    def compute_strain_energies(self, u, node_index):
+        
         energies = {}
-        node_ids, node_index = self._build_node_index()
-
         for sid, spring in self.springs.items():
-          energies[sid] = spring.strain_energy(self, u, node_index)
-
+            energies[sid] = spring.strain_energy(self, u, node_index)
         return energies
-    
-    def prioritise_energies(self):
 
-        energies =self.compute_strain_energies()
-
-        sorted_energies = sorted(energies.items(), key=lambda x: x[1])
-
-    def current_locations_nodes(self, u, pos0, all_ids):
-        node_ids, node_index = self._build_node_index()
+    def current_locations_nodes(self, u, node_index, pos0, all_ids):
         frame_current_locations_node = {}
         
         for nid in all_ids:

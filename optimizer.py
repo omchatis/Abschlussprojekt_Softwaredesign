@@ -22,17 +22,19 @@ def protected_nodes(st) -> set[int]:
     #Menge aller protected node_ids.
     return {nid for nid in st.nodes.keys() if is_protected_node(st, nid)}
 
-def nodal_energies(st, spring_energies):
+def avg_nodal_energies(st, spring_energies):
     E_node = {}
     for nid in st.nodes.keys():
-        E = 0.0
+        number_springs = st.number_of_incident_springs(nid)
+        E_avg = 0.0
         for sid in st.incident_springs(nid):
-            E += 0.5 * spring_energies[sid]  # halb/halb auf Endknoten
-        E_node[nid] = E
+            E_avg += 0.5 * spring_energies[sid]/number_springs  # halb/halb auf Endknoten
+        E_node[nid] = E_avg
     return E_node
 
+
 def rank_nodes_by_energy(st, spring_energies: dict[int, float]):
-    E_node = nodal_energies(st, spring_energies)
+    E_node = avg_nodal_energies(st, spring_energies)
     protected = protected_nodes(st)
 
     # Protected Nodes herausfiltern
