@@ -194,6 +194,33 @@ with st.sidebar:
             st.caption(f"Max. Verschiebung (Kraft/Lager): {ku:.5f}")
         else:
             st.caption(f"Max. Verschiebung: {float(np.max(np.abs(u))):.5f}")
+        # Konditionszahl anzeigen
+        try:
+            id_to_idx = {nid: i for i, nid in enumerate(st.session_state.structure.nodes.keys())}
+            n = len(st.session_state.structure.nodes)
+            K = np.zeros((2*n, 2*n))
+            for s in st.session_state.structure.springs.values():
+                k_local = s.local_stiffness(st.session_state.structure)
+                ii, jj = id_to_idx[s.i], id_to_idx[s.j]
+                dofs = [2*ii, 2*ii+1, 2*jj, 2*jj+1]
+                for a in range(4):
+                    for b in range(4):
+                        K[dofs[a], dofs[b]] += k_local[a, b]
+            fixed_set = set()
+            for nid, node in st.session_state.structure.nodes.items():
+                idx = id_to_idx[nid]
+                if node.bc[0]: fixed_set.add(2*idx)
+                if node.bc[1]: fixed_set.add(2*idx+1)
+            free = [i for i in range(2*n) if i not in fixed_set]
+            cond = np.linalg.cond(K[np.ix_(free, free)])
+            if cond < 1e6:
+                st.caption(f"Konditionszahl: {cond:.1e} ✅")
+            elif cond < 1e10:
+                st.caption(f"Konditionszahl: {cond:.1e} ⚠️ schlecht konditioniert")
+            else:
+                st.caption(f"Konditionszahl: {cond:.1e} ❌ numerisch instabil")
+        except Exception:
+            pass
 
     st.divider()
 
@@ -485,39 +512,45 @@ else:
         to_remove = opt.num_to_remove(structure, mass_reduction, start_mass) if not until_unstable else 9999
 
         # Bulk-Queue beim ersten Start befüllen
+        # Bei until_unstable: kein Bulk – von Anfang an sorgfältig iterieren
         if not ss.opt_bulk_done:
-            n_bulk_base = to_remove if not until_unstable else max(1, int(len(structure.nodes) * ss.bulk_fraction))
-            if n_bulk_base > 3:
-                n_bulk  = max(1, int(n_bulk_base * ss.bulk_fraction))
+            if not until_unstable and to_remove > 3:
+                n_bulk  = max(1, int(to_remove * ss.bulk_fraction))
                 ranking = opt.rank_nodes_by_energy(structure, ss.strain_energies)
                 queue   = [nid for nid, _ in ranking[:n_bulk]]
                 ss.opt_bulk_queue = queue
             ss.opt_bulk_done = True
 
         def do_one_step():
+            """Entfernt genau einen Knoten. Gibt True bei Erfolg zurück."""
+
             # Bulk-Queue abarbeiten
             while ss.opt_bulk_queue:
-                nid = ss.opt_bulk_queue[0]
+                nid = ss.opt_bulk_queue.pop(0)
                 if nid not in structure.nodes:
-                    ss.opt_bulk_queue.pop(0)
                     continue
                 snap = opt.snapshot_node_removal(structure, nid)
                 structure.remove_node(nid)
                 if opt.is_connected_one_piece(structure) and opt.has_support(structure):
-                    ss.opt_bulk_queue.pop(0)
                     ss.opt_iteration += 1
                     ss.opt_log.append(f"Iter. {ss.opt_iteration}: Knoten {nid} entfernt")
-                    if ss.opt_iteration % 3 == 0 or not ss.opt_bulk_queue:
-                        u = run_solver(structure)
-                        if u is not None and float(np.max(np.abs(u))) < 1e6:
-                            ss.displacements   = u
-                            ss.strain_energies = structure.compute_strain_energies(u)
-                            _save_frame(ss, structure)
+                    u = run_solver(structure)
+                    if u is not None and float(np.max(np.abs(u))) < 1e6:
+                        ss.displacements   = u
+                        ss.strain_energies = structure.compute_strain_energies(u)
+                        _save_frame(ss, structure)
+                    else:
+                        # Solver fehlgeschlagen: alte Energien bereinigen
+                        ss.strain_energies = {sid: e for sid, e in ss.strain_energies.items()
+                                              if sid in structure.springs}
                     return True
                 else:
                     opt.undo_node_removal(structure, snap)
-                    ss.opt_bulk_queue.pop(0)
-                    continue
+                    continue  # nächsten Kandidaten versuchen
+
+            # Bulk fertig: Energien bereinigen (entfernte Federn raus)
+            ss.strain_energies = {sid: e for sid, e in ss.strain_energies.items()
+                                  if sid in structure.springs}
 
             # Normale Iteration
             to_rem = opt.num_to_remove(structure, mass_reduction, start_mass) if not until_unstable else 9999
@@ -547,13 +580,13 @@ else:
                 ss.opt_log.append(f"⚠️ Instabil bei Iter. {ss.opt_iteration}."); return False
             ss.displacements   = u
             ss.strain_energies = structure.compute_strain_energies(u)
-            # Frame speichern
             _save_frame(ss, structure)
             return True
 
+        # Schleife läuft bis N *erfolgreiche* Entfernungen (nicht N Versuche)
         steps_target = ss.opt_steps_todo if ss.opt_steps_todo > 0 else 1
         did = 0
-        for _ in range(steps_target):
+        while did < steps_target:
             if not do_one_step():
                 break
             did += 1
