@@ -2,11 +2,11 @@ from structure import Structure
 
 def create_grid(width: int, height: int, EA: float = 100.0):
     st = Structure()
-    # 1️⃣ Knoten erzeugen
+    # 1 Knoten erzeugen
     for i in range(height):
         for j in range(width):
             st.add_node(j, i)
-    # 2️⃣ Federn erzeugen
+    # 2 Federn erzeugen
     for i in range(height):
         for j in range(width):
             node_id = i * width + j

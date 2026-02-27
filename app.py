@@ -9,7 +9,7 @@ import optimizer as opt
 
 st.set_page_config(page_title="Topologieoptimierung 2D", layout="wide")
 
-# ── CSS ───────────────────────────────────────────────────────────────────────
+# CSS
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@300;400;600&display=swap');
@@ -36,7 +36,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ── Session State ─────────────────────────────────────────────────────────────
+# Session State
 for key, default in [
     ("structure", None),
     ("selected_node", None),
@@ -55,11 +55,12 @@ for key, default in [
     ("opt_steps_todo", 0),
     ("opt_bulk_queue", []),
     ("opt_until_unstable", False),
+    ("opt_frames", []),  # Liste von PNG-Bytes pro Schritt
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
 
-# ── Hilfsfunktion: Solver ─────────────────────────────────────────────────────
+# Hilfsfunktion: Solver
 def run_solver(structure):
     id_to_idx = {nid: i for i, nid in enumerate(structure.nodes.keys())}
     n = len(structure.nodes)
@@ -98,7 +99,7 @@ def run_solver(structure):
 
     return u_full
 
-# ── Sidebar ───────────────────────────────────────────────────────────────────
+# Sidebar
 with st.sidebar:
     st.markdown("## ⚙️ Modellparameter")
     width  = st.number_input("Breite",  min_value=2, max_value=200, value=4)
@@ -117,10 +118,11 @@ with st.sidebar:
         st.session_state.opt_log         = []
         st.session_state.opt_bulk_done   = False
         st.session_state.opt_bulk_queue  = []
+        st.session_state.opt_frames      = []
 
     st.divider()
 
-    # ── Knoten auswählen ──────────────────────────────────────────────────────
+    # Knoten auswählen
     if st.session_state.structure is not None:
         st.markdown("## 🔍 Knoten auswählen")
         max_node_id = max(st.session_state.structure.nodes.keys())
@@ -137,7 +139,7 @@ with st.sidebar:
             else:
                 st.warning(f"Knoten {st.session_state.manual_id} existiert nicht.")
 
-    # ── Knoten bearbeiten ─────────────────────────────────────────────────────
+    # Knoten bearbeiten
     if st.session_state.structure is not None and st.session_state.selected_node is not None:
         if st.session_state.selected_node not in st.session_state.structure.nodes:
             st.session_state.selected_node = None
@@ -167,7 +169,7 @@ with st.sidebar:
 
     st.divider()
 
-    # ── Simulation ────────────────────────────────────────────────────────────
+    # Simulation
     st.markdown("## ▶️ Simulation")
     if st.button("Simulation starten", use_container_width=True):
         if st.session_state.structure is not None:
@@ -195,7 +197,7 @@ with st.sidebar:
 
     st.divider()
 
-    # ── Optimierung ───────────────────────────────────────────────────────────
+    # Optimierung
     st.markdown("## 🔧 Optimierung")
 
     tab_opt, tab_params = st.tabs(["Optimierung", "Parameter"])
@@ -250,6 +252,7 @@ with st.sidebar:
             st.session_state.opt_log        = []
             st.session_state.opt_bulk_done  = False
             st.session_state.opt_bulk_queue = []
+            st.session_state.opt_frames     = []
 
         # Schritt-Buttons
         n_nodes = len(st.session_state.structure.nodes) if st.session_state.structure else 0
@@ -278,6 +281,52 @@ with st.sidebar:
             with st.expander("Optimierungslog", expanded=False):
                 for line in st.session_state.opt_log[-20:]:
                     st.text(line)
+
+        # Download
+        if st.session_state.opt_frames:
+            n_frames = len(st.session_state.opt_frames)
+            st.caption(f"{n_frames} Frames gespeichert")
+            dcol1, dcol2 = st.columns(2)
+
+            # ZIP Download
+            import io, zipfile
+            zip_buf = io.BytesIO()
+            with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                for idx, frame_bytes in enumerate(st.session_state.opt_frames):
+                    zf.writestr(f"frame_{idx:04d}.png", frame_bytes)
+            zip_buf.seek(0)
+            dcol1.download_button(
+                "📦 ZIP", data=zip_buf,
+                file_name="optimierung.zip", mime="application/zip",
+                use_container_width=True
+            )
+
+            # GIF Download
+            try:
+                from PIL import Image
+                import io as _io
+                frames_pil = []
+                for fb in st.session_state.opt_frames:
+                    img = Image.open(_io.BytesIO(fb)).convert("RGB")
+                    # auf max 800px skalieren für kleinere GIFs
+                    img.thumbnail((800, 600))
+                    frames_pil.append(img)
+                gif_buf = _io.BytesIO()
+                frames_pil[0].save(
+                    gif_buf, format="GIF",
+                    save_all=True,
+                    append_images=frames_pil[1:],
+                    duration=200,   # ms pro Frame
+                    loop=0
+                )
+                gif_buf.seek(0)
+                dcol2.download_button(
+                    "🎞️ GIF", data=gif_buf,
+                    file_name="optimierung.gif", mime="image/gif",
+                    use_container_width=True
+                )
+            except ImportError:
+                dcol2.caption("PIL fehlt für GIF")
 
     with tab_params:
         st.markdown("**Gewichtungen**")
@@ -371,20 +420,7 @@ with st.sidebar:
             df = pd.DataFrame(st.session_state.param_results)
             st.dataframe(df, use_container_width=True, hide_index=True)
 
-    st.divider()
-
-    # ── Legende ───────────────────────────────────────────────────────────────
-    st.markdown("**Legende**")
-    st.markdown("""
-    <div class='node-card'>
-        <span class='legend-dot' style='background:#FF3B3B'></span> Ausgewählt<br>
-        <span class='legend-dot' style='background:#F59E0B'></span> Gelagert<br>
-        <span class='legend-dot' style='background:#10B981'></span> Belastet<br>
-        <span class='legend-dot' style='background:#3B82F6'></span> Frei
-    </div>
-    """, unsafe_allow_html=True)
-
-# ── Hauptbereich ──────────────────────────────────────────────────────────────
+# Hauptbereich
 st.markdown("# Topologieoptimierung")
 
 if st.session_state.structure is None:
@@ -422,7 +458,23 @@ else:
     else:
         st.plotly_chart(fig, use_container_width=True)
 
-    # ── Optimierungsschritt ───────────────────────────────────────────────────
+    def _save_frame(ss, structure):
+        """Rendert die aktuelle Struktur und speichert als PNG-Bytes."""
+        try:
+            import io
+            _fig = plot_structure_interactive(
+                structure,
+                selected_node   = ss.selected_node,
+                displacements   = ss.displacements,
+                scale           = 1.0,
+                strain_energies = ss.strain_energies,
+            )
+            png_bytes = _fig.to_image(format="png", width=900, height=600)
+            ss.opt_frames.append(png_bytes)
+        except Exception:
+            pass  # kaleido nicht installiert – frames überspringen
+
+    # Optimierungsschritt
     if st.session_state.opt_running and st.session_state.strain_energies is not None:
         ss         = st.session_state
         structure  = ss.structure
@@ -460,6 +512,7 @@ else:
                         if u is not None and float(np.max(np.abs(u))) < 1e6:
                             ss.displacements   = u
                             ss.strain_energies = structure.compute_strain_energies(u)
+                            _save_frame(ss, structure)
                     return True
                 else:
                     opt.undo_node_removal(structure, snap)
@@ -494,6 +547,8 @@ else:
                 ss.opt_log.append(f"⚠️ Instabil bei Iter. {ss.opt_iteration}."); return False
             ss.displacements   = u
             ss.strain_energies = structure.compute_strain_energies(u)
+            # Frame speichern
+            _save_frame(ss, structure)
             return True
 
         steps_target = ss.opt_steps_todo if ss.opt_steps_todo > 0 else 1
