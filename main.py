@@ -5,7 +5,7 @@ import math
 
 if __name__ == "__main__":
     st = Structure()
-
+    '''
     n0 = st.add_node(0, 0, bc=(True, True))     # Festlager
     n1 = st.add_node(1, 0)
     n2 = st.add_node(0, 1)
@@ -31,6 +31,58 @@ if __name__ == "__main__":
     st.add_spring(n1, n2)
     st.add_spring(n1, n5)
     st.add_spring(n4, n3)
+    '''
+    
+        # --- Nodes (4x4) ---
+    # z = 0 (unten)
+    n0  = st.add_node(0, 0, bc=(True, True))          # Festlager links unten
+    n1  = st.add_node(1, 0)
+    n2  = st.add_node(2, 0)
+    n3  = st.add_node(3, 0, bc=(False, True))         # Loslager rechts unten (nur z fixiert)
+
+    # z = 1
+    n4  = st.add_node(0, 1)
+    n5  = st.add_node(1, 1)
+    n6  = st.add_node(2, 1)
+    n7  = st.add_node(3, 1)
+
+    # z = 2
+    n8  = st.add_node(0, 2)
+    n9  = st.add_node(1, 2)
+    n10 = st.add_node(2, 2)
+    n11 = st.add_node(3, 2)
+
+    # z = 3 (oben)
+    n12 = st.add_node(0, 3)
+    n13 = st.add_node(1, 3, force=(0.0, -0.2))       # Kraft: 2 von links, oberste Zeile, nach unten
+    n14 = st.add_node(2, 3)
+    n15 = st.add_node(3, 3)
+
+    # --- horizontale Federn ---
+    st.add_spring(n0,  n1);  st.add_spring(n1,  n2);  st.add_spring(n2,  n3)
+    st.add_spring(n4,  n5);  st.add_spring(n5,  n6);  st.add_spring(n6,  n7)
+    st.add_spring(n8,  n9);  st.add_spring(n9,  n10); st.add_spring(n10, n11)
+    st.add_spring(n12, n13); st.add_spring(n13, n14); st.add_spring(n14, n15)
+
+    # --- vertikale Federn ---
+    st.add_spring(n0,  n4);  st.add_spring(n1,  n5);  st.add_spring(n2,  n6);  st.add_spring(n3,  n7)
+    st.add_spring(n4,  n8);  st.add_spring(n5,  n9);  st.add_spring(n6,  n10); st.add_spring(n7,  n11)
+    st.add_spring(n8,  n12); st.add_spring(n9,  n13); st.add_spring(n10, n14); st.add_spring(n11, n15)
+
+    # --- diagonale Federn (beide Diagonalen pro Zelle) ---
+    # Zelle zwischen (z=0..2, x=0..2)
+    st.add_spring(n0,  n5);  st.add_spring(n1,  n4)
+    st.add_spring(n1,  n6);  st.add_spring(n2,  n5)
+    st.add_spring(n2,  n7);  st.add_spring(n3,  n6)
+
+    st.add_spring(n4,  n9);  st.add_spring(n5,  n8)
+    st.add_spring(n5,  n10); st.add_spring(n6,  n9)
+    st.add_spring(n6,  n11); st.add_spring(n7,  n10)
+
+    st.add_spring(n8,  n13); st.add_spring(n9,  n12)
+    st.add_spring(n9,  n14); st.add_spring(n10, n13)
+    st.add_spring(n10, n15); st.add_spring(n11, n14)
+    
 
     all_ids = sorted(st.nodes.keys())
     pos0 = {}

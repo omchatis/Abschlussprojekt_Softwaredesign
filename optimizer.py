@@ -70,7 +70,7 @@ def has_support(st) -> bool:
     
 def solve_works(st) -> bool:
     try:
-        _ = st.solve()
+        _ = st.solve_with_solver_py()
         return True
     except Exception:
         return False
@@ -116,7 +116,7 @@ def remove_one_node(st, spring_energies: dict[int, float]):
         st.remove_node(nid)
 
         ok = is_connected_one_piece(st) and has_support(st) and solve_works(st)
-
+        
         if ok:
             return nid  # <-- WICHTIG
 
