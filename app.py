@@ -48,16 +48,19 @@ for key, default in [
     ("opt_iteration", 0),
     ("opt_start_mass", None),
     ("opt_log", []),
+    ("w1", 0.5),
+    ("opt_bulk_done", False),
+    ("bulk_fraction", 0.15),
+    ("param_results", []),
+    ("opt_steps_todo", 0),
+    ("opt_bulk_queue", []),
+    ("opt_until_unstable", False),
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
 
-# ── Hilfsfunktion: Solver aufrufen über structure ─────────────────────────────
+# ── Hilfsfunktion: Solver ─────────────────────────────────────────────────────
 def run_solver(structure):
-    """Baut K und F aus der Structure und ruft solver.solve() auf.
-    Nach dem Entfernen von Knoten sind IDs nicht mehr lueckenlos,
-    daher remappen wir auf kompakte Indizes 0..n-1.
-    """
     id_to_idx = {nid: i for i, nid in enumerate(structure.nodes.keys())}
     n = len(structure.nodes)
     K = np.zeros((2*n, 2*n))
@@ -87,7 +90,6 @@ def run_solver(structure):
     if u_compact is None:
         return None
 
-    # Ergebnis zurueck auf node.id-Raum mappen
     max_id = max(structure.nodes.keys())
     u_full = np.zeros(2 * (max_id + 1))
     for nid, idx in id_to_idx.items():
@@ -99,11 +101,12 @@ def run_solver(structure):
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## ⚙️ Modellparameter")
-    width  = st.number_input("Breite",  min_value=2, max_value=20, value=4)
-    height = st.number_input("Höhe",    min_value=2, max_value=20, value=4)
+    width  = st.number_input("Breite",  min_value=2, max_value=200, value=4)
+    height = st.number_input("Höhe",    min_value=2, max_value=200, value=4)
+    EA     = st.number_input("Federsteifigkeit EA", min_value=0.1, max_value=10000.0, value=100.0, step=10.0)
 
     if st.button("🔲 Grid erzeugen", use_container_width=True):
-        st.session_state.structure       = create_grid(width, height)
+        st.session_state.structure       = create_grid(width, height, EA=EA)
         st.session_state.selected_node   = None
         st.session_state.displacements   = None
         st.session_state.strain_energies = None
@@ -112,6 +115,55 @@ with st.sidebar:
         st.session_state.opt_iteration   = 0
         st.session_state.opt_start_mass  = None
         st.session_state.opt_log         = []
+        st.session_state.opt_bulk_done   = False
+        st.session_state.opt_bulk_queue  = []
+
+    st.divider()
+
+    # ── Knoten auswählen ──────────────────────────────────────────────────────
+    if st.session_state.structure is not None:
+        st.markdown("## 🔍 Knoten auswählen")
+        max_node_id = max(st.session_state.structure.nodes.keys())
+        st.session_state.manual_id = min(st.session_state.manual_id, max_node_id)
+        st.session_state.manual_id = st.number_input(
+            "Knoten ID eingeben",
+            min_value=0, max_value=max_node_id,
+            value=st.session_state.manual_id, step=1
+        )
+        if st.button("Knoten auswählen", use_container_width=True):
+            if st.session_state.manual_id in st.session_state.structure.nodes:
+                st.session_state.selected_node = st.session_state.manual_id
+                st.rerun()
+            else:
+                st.warning(f"Knoten {st.session_state.manual_id} existiert nicht.")
+
+    # ── Knoten bearbeiten ─────────────────────────────────────────────────────
+    if st.session_state.structure is not None and st.session_state.selected_node is not None:
+        if st.session_state.selected_node not in st.session_state.structure.nodes:
+            st.session_state.selected_node = None
+        else:
+            st.divider()
+            st.markdown("## ✏️ Knoten bearbeiten")
+            node_id = st.session_state.selected_node
+            node    = st.session_state.structure.nodes[node_id]
+
+            st.markdown(
+                f"<div class='node-card'>Knoten ID: <b>{node_id}</b><br>x={node.x}, z={node.z}</div>",
+                unsafe_allow_html=True
+            )
+
+            ecol1, ecol2 = st.columns(2)
+            fix_x = ecol1.checkbox("Fixiere X", value=bool(node.bc[0]), key=f"fix_x_{node_id}")
+            fix_z = ecol2.checkbox("Fixiere Z", value=bool(node.bc[1]), key=f"fix_z_{node_id}")
+            Fx = st.number_input("Fx", value=float(node.force[0]), key=f"Fx_{node_id}")
+            Fz = st.number_input("Fz", value=float(node.force[1]), key=f"Fz_{node_id}")
+
+            if st.button("✅ Änderungen übernehmen", use_container_width=True, key=f"apply_{node_id}"):
+                node.bc    = (fix_x, fix_z)
+                node.force = (Fx, Fz)
+                st.session_state.displacements   = None
+                st.session_state.strain_energies = None
+                st.success(f"Knoten {node_id} aktualisiert")
 
     st.divider()
 
@@ -131,107 +183,206 @@ with st.sidebar:
 
     scale = 1.0
     if st.session_state.displacements is not None:
-        max_u = float(__import__('numpy').max(__import__('numpy').abs(st.session_state.displacements)))
-        st.caption(f"Max. Verschiebung: {max_u:.4f}")
+        u = st.session_state.displacements
+        key_nids = [nid for nid, n in st.session_state.structure.nodes.items()
+                    if abs(n.force[0]) > 0 or abs(n.force[1]) > 0 or n.bc[0] or n.bc[1]]
+        if key_nids:
+            ku = max(max(abs(u[2*nid]), abs(u[2*nid+1]))
+                     for nid in key_nids if 2*nid+1 < len(u))
+            st.caption(f"Max. Verschiebung (Kraft/Lager): {ku:.5f}")
+        else:
+            st.caption(f"Max. Verschiebung: {float(np.max(np.abs(u))):.5f}")
 
     st.divider()
 
     # ── Optimierung ───────────────────────────────────────────────────────────
     st.markdown("## 🔧 Optimierung")
 
-    mass_reduction = st.slider(
-        "Massenreduktion", 0.1, 0.95, 0.5,
-        help="Ziel: wie viel % der ursprünglichen Knoten sollen übrig bleiben"
-    )
+    tab_opt, tab_params = st.tabs(["Optimierung", "Parameter"])
 
-    col1, col2 = st.columns(2)
-
-    # Start / Fortsetzen
-    if col1.button("▶ Start", use_container_width=True):
-        if st.session_state.structure is None:
-            st.warning("Zuerst Grid erzeugen.")
-        elif st.session_state.displacements is None:
-            st.warning("Zuerst Simulation starten.")
-        else:
-            if st.session_state.opt_start_mass is None:
-                st.session_state.opt_start_mass = len(st.session_state.structure.nodes)
-            st.session_state.opt_running = True
-            st.session_state.opt_paused  = False
-
-    # Pause
-    if col2.button("⏸ Pause", use_container_width=True):
-        st.session_state.opt_paused  = True
-        st.session_state.opt_running = False
-
-    # Stop
-    if st.button("⏹ Stop", use_container_width=True):
-        st.session_state.opt_running    = False
-        st.session_state.opt_paused     = False
-        st.session_state.opt_start_mass = None
-        st.session_state.opt_iteration  = 0
-        st.session_state.opt_log        = []
-
-    # Status anzeigen
-    if st.session_state.opt_running:
-        st.info(f"🔄 Läuft… Iteration {st.session_state.opt_iteration}")
-    elif st.session_state.opt_paused:
-        st.warning(f"⏸ Pausiert bei Iteration {st.session_state.opt_iteration}")
-
-    if st.session_state.opt_log:
-        with st.expander("Optimierungslog", expanded=False):
-            for line in st.session_state.opt_log[-20:]:
-                st.text(line)
-
-
-    # ── Knoten auswählen ──────────────────────────────────────────────────────
-    if st.session_state.structure is not None:
-        st.divider()
-        st.markdown("## 🔍 Knoten auswählen")
-        max_node_id = max(st.session_state.structure.nodes.keys())
-        st.session_state.manual_id = min(st.session_state.manual_id, max_node_id)
-        st.session_state.manual_id = st.number_input(
-            "Knoten ID eingeben",
-            min_value=0,
-            max_value=max_node_id,
-            value=st.session_state.manual_id,
-            step=1
+    with tab_opt:
+        # Modus: Ziel oder bis zur Instabilität
+        st.session_state.opt_until_unstable = st.toggle(
+            "Bis zur Instabilität",
+            value=st.session_state.opt_until_unstable,
+            help="Entfernt Knoten solange bis keiner mehr entfernt werden kann"
         )
-        if st.button("Knoten auswählen", use_container_width=True):
-            if st.session_state.manual_id in st.session_state.structure.nodes:
-                st.session_state.selected_node = st.session_state.manual_id
-                st.rerun()
-            else:
-                st.warning(f"Knoten {st.session_state.manual_id} existiert nicht.")
 
-    # ── Knoten bearbeiten ─────────────────────────────────────────────────────
-    if st.session_state.structure is not None and st.session_state.selected_node is not None:
-        # Sicherheitscheck: node könnte durch Optimierung entfernt worden sein
-        if st.session_state.selected_node not in st.session_state.structure.nodes:
-            st.session_state.selected_node = None
+        if st.session_state.opt_until_unstable:
+            mass_reduction = 0.0
+            st.caption("→ Läuft bis zur Stabilitätsgrenze")
         else:
-            st.divider()
-            st.markdown("## ✏️ Knoten bearbeiten")
-            node_id = st.session_state.selected_node
-            node    = st.session_state.structure.nodes[node_id]
-
-            st.markdown(
-                f"<div class='node-card'>Knoten ID: <b>{node_id}</b><br>x={node.x}, z={node.z}</div>",
-                unsafe_allow_html=True
+            mass_reduction = st.slider(
+                "Verbleibende Knoten (%)", 0.1, 0.95, 0.8,
+                help="0.8 = 80% der Knoten bleiben übrig"
             )
+            n_total = len(st.session_state.structure.nodes) if st.session_state.structure else 0
+            if n_total > 0:
+                n_keep   = int(mass_reduction * n_total)
+                n_remove = n_total - n_keep
+                st.caption(f"→ {n_keep} behalten, {n_remove} entfernen")
 
-            col1, col2 = st.columns(2)
-            fix_x = col1.checkbox("Fixiere X", value=bool(node.bc[0]), key=f"fix_x_{node_id}")
-            fix_z = col2.checkbox("Fixiere Z", value=bool(node.bc[1]), key=f"fix_z_{node_id}")
-            Fx = st.number_input("Fx (horizontale Kraft)", value=float(node.force[0]), key=f"Fx_{node_id}")
-            Fz = st.number_input("Fz (vertikale Kraft)",   value=float(node.force[1]), key=f"Fz_{node_id}")
+        bcol1, bcol2 = st.columns(2)
 
-            if st.button("✅ Änderungen übernehmen", use_container_width=True, key=f"apply_{node_id}"):
-                node.bc    = (fix_x, fix_z)
-                node.force = (Fx, Fz)
-                st.session_state.displacements   = None
-                st.session_state.strain_energies = None
-                # selected_node bleibt erhalten!
-                st.success(f"Knoten {node_id} aktualisiert")
+        if bcol1.button("▶ Start", use_container_width=True):
+            if st.session_state.structure is None:
+                st.warning("Zuerst Grid erzeugen.")
+            elif st.session_state.displacements is None:
+                st.warning("Zuerst Simulation starten.")
+            else:
+                if st.session_state.opt_start_mass is None:
+                    st.session_state.opt_start_mass = len(st.session_state.structure.nodes)
+                st.session_state.opt_bulk_done  = False
+                st.session_state.opt_bulk_queue = []
+                st.session_state.opt_steps_todo = 0
+                st.session_state.opt_running    = True
+                st.session_state.opt_paused     = False
+
+        if bcol2.button("⏸ Pause", use_container_width=True):
+            st.session_state.opt_paused  = True
+            st.session_state.opt_running = False
+
+        if st.button("⏹ Stop", use_container_width=True):
+            st.session_state.opt_running    = False
+            st.session_state.opt_paused     = False
+            st.session_state.opt_start_mass = None
+            st.session_state.opt_iteration  = 0
+            st.session_state.opt_log        = []
+            st.session_state.opt_bulk_done  = False
+            st.session_state.opt_bulk_queue = []
+
+        # Schritt-Buttons
+        n_nodes = len(st.session_state.structure.nodes) if st.session_state.structure else 0
+        step_sizes = [1]
+        for s in [2, 5, 10, 20]:
+            if n_nodes >= s * 3:
+                step_sizes.append(s)
+        step_cols = st.columns(len(step_sizes))
+        for i, s in enumerate(step_sizes):
+            if step_cols[i].button(f"+{s}", use_container_width=True, key=f"step_{s}"):
+                if st.session_state.structure is not None and st.session_state.displacements is not None:
+                    if st.session_state.opt_start_mass is None:
+                        st.session_state.opt_start_mass = len(st.session_state.structure.nodes)
+                        st.session_state.opt_bulk_done  = False
+                        st.session_state.opt_bulk_queue = []
+                    st.session_state.opt_steps_todo = s
+                    st.session_state.opt_running    = True
+                    st.session_state.opt_paused     = False
+
+        if st.session_state.opt_running:
+            st.info(f"🔄 Läuft… Iteration {st.session_state.opt_iteration}")
+        elif st.session_state.opt_paused:
+            st.warning(f"⏸ Pausiert bei Iteration {st.session_state.opt_iteration}")
+
+        if st.session_state.opt_log:
+            with st.expander("Optimierungslog", expanded=False):
+                for line in st.session_state.opt_log[-20:]:
+                    st.text(line)
+
+    with tab_params:
+        st.markdown("**Gewichtungen**")
+        st.session_state.w1 = st.slider("w1 – Direktheit (0=aus, 1=max)", 0.0, 1.0,
+                                         st.session_state.w1, 0.05)
+        st.session_state.bulk_fraction = st.slider("Bulk-Anteil (Phase 1)", 0.0, 0.8,
+                                                    st.session_state.bulk_fraction, 0.05)
+        st.divider()
+        st.markdown("**Parametersuche** (w1 × 11 Kombinationen)")
+        st.caption("Testet w1 von 0.0 bis 1.0 und zeigt welcher Wert am besten abschneidet.")
+
+        if st.button("🔍 Suche starten", use_container_width=True):
+            if st.session_state.structure is None or st.session_state.displacements is None:
+                st.warning("Erst Grid erzeugen und Simulation starten.")
+            else:
+                import optimizer as _opt
+
+                combos_w1 = [round(x * 0.1, 1) for x in range(11)]
+                results   = []
+                base_mass   = len(st.session_state.structure.nodes)
+                target_mass = max(3, int(0.7 * base_mass))
+                bf          = st.session_state.bulk_fraction
+
+                progress    = st.progress(0)
+                status_text = st.empty()
+
+                def key_disp(u, structure):
+                    key_nids = [nid for nid, n in structure.nodes.items()
+                                if abs(n.force[0]) > 0 or abs(n.force[1]) > 0
+                                or n.bc[0] or n.bc[1]]
+                    if not key_nids or u is None:
+                        return 9999.0
+                    vals = [max(abs(u[2*nid]), abs(u[2*nid+1]))
+                            for nid in key_nids if 2*nid+1 < len(u)]
+                    return max(vals) if vals else 9999.0
+
+                u_ref  = st.session_state.displacements
+                max_u0 = key_disp(u_ref, st.session_state.structure)
+
+                for i, w1 in enumerate(combos_w1):
+                    status_text.text(f"Teste w1={w1}…")
+                    st_copy = copy.deepcopy(st.session_state.structure)
+                    u_copy  = u_ref.copy()
+                    se_copy = dict(st.session_state.strain_energies)
+
+                    _opt._W1 = w1
+
+                    # Phase 1: Bulk
+                    to_remove = base_mass - target_mass
+                    _opt.bulk_remove_initial(st_copy, se_copy, to_remove, bulk_fraction=bf)
+                    u_new = run_solver(st_copy)
+                    if u_new is not None and float(np.max(np.abs(u_new))) < 1e6:
+                        se_copy = st_copy.compute_strain_energies(u_new)
+                        u_copy  = u_new
+
+                    # Phase 2: Iterativ
+                    iters = 0
+                    while len(st_copy.nodes) > target_mass and iters < (base_mass - target_mass):
+                        removed = _opt.remove_one_node(st_copy, se_copy, solver_fn=run_solver)
+                        if removed is None:
+                            break
+                        u_new = run_solver(st_copy)
+                        if u_new is None or float(np.max(np.abs(u_new))) > 1e6:
+                            break
+                        se_copy = st_copy.compute_strain_energies(u_new)
+                        u_copy  = u_new
+                        iters  += 1
+
+                    max_u = key_disp(u_copy, st_copy)
+                    score = max_u0 / (max_u + 1e-9)
+                    results.append({
+                        "w1": w1,
+                        "u_key": round(max_u, 6),
+                        "Δu/u₀": round(max_u / max(max_u0, 1e-9), 3),
+                        "score": round(score, 4)
+                    })
+                    progress.progress((i + 1) / len(combos_w1))
+
+                _opt._W1 = st.session_state.w1  # restoren
+                results.sort(key=lambda x: -x["score"])
+                st.session_state.param_results = results
+                best = results[0]
+                status_text.text(f"✅ Fertig! Beste w1={best['w1']} (Score={best['score']})")
+
+        if st.session_state.param_results:
+            st.markdown("**Ergebnisse** (nach Score sortiert)")
+            if st.button("✅ Beste Parameter übernehmen", use_container_width=True):
+                st.session_state.w1 = st.session_state.param_results[0]["w1"]
+                st.rerun()
+            import pandas as pd
+            df = pd.DataFrame(st.session_state.param_results)
+            st.dataframe(df, use_container_width=True, hide_index=True)
+
+    st.divider()
+
+    # ── Legende ───────────────────────────────────────────────────────────────
+    st.markdown("**Legende**")
+    st.markdown("""
+    <div class='node-card'>
+        <span class='legend-dot' style='background:#FF3B3B'></span> Ausgewählt<br>
+        <span class='legend-dot' style='background:#F59E0B'></span> Gelagert<br>
+        <span class='legend-dot' style='background:#10B981'></span> Belastet<br>
+        <span class='legend-dot' style='background:#3B82F6'></span> Frei
+    </div>
+    """, unsafe_allow_html=True)
 
 # ── Hauptbereich ──────────────────────────────────────────────────────────────
 st.markdown("# Topologieoptimierung")
@@ -239,85 +390,127 @@ st.markdown("# Topologieoptimierung")
 if st.session_state.structure is None:
     st.info("👈 Grid erzeugen um zu starten.")
 else:
-    # ── Optimierungsschritt ausführen ─────────────────────────────────────────
-    if st.session_state.opt_running and st.session_state.strain_energies is not None:
-        ss = st.session_state
-        structure  = ss.structure
-        start_mass = ss.opt_start_mass
-
-        to_remove = opt.num_to_remove(structure, mass_reduction, start_mass)
-
-        if to_remove <= 0:
-            ss.opt_running = False
-            ss.opt_log.append(f"✅ Ziel erreicht nach {ss.opt_iteration} Iterationen.")
-        else:
-            removed = opt.remove_one_node(structure, ss.strain_energies)
-            if removed is None:
-                ss.opt_running = False
-                ss.opt_log.append(f"⛔ Kein weiterer Knoten entfernbar (Iteration {ss.opt_iteration}).")
-            else:
-                ss.opt_iteration += 1
-                ss.opt_log.append(f"Iteration {ss.opt_iteration}: Knoten {removed} entfernt.")
-
-                u = run_solver(structure)
-                if u is not None:
-                    # Abbruch wenn Verschiebungen numerisch explodieren
-                    max_u = float(np.max(np.abs(u)))
-                    if max_u > 1e6:
-                        ss.opt_running = False
-                        ss.opt_log.append(f"⚠️ Abbruch: max. Verschiebung={max_u:.2e} – Struktur instabil.")
-                    else:
-                        ss.displacements   = u
-                        ss.strain_energies = structure.compute_strain_energies(u)
-                else:
-                    ss.opt_running = False
-                    ss.opt_log.append("⛔ Simulation nach Entfernung fehlgeschlagen.")
-
-        st.rerun()
-
-    else:
-        # normales Rendering ohne Optimierungsschritt
-        fig = plot_structure_interactive(
-            st.session_state.structure,
-            selected_node   = st.session_state.selected_node,
-            displacements   = st.session_state.displacements,
-            scale           = scale,
-            strain_energies = st.session_state.strain_energies,
-        )
-
+    fig = plot_structure_interactive(
+        st.session_state.structure,
+        selected_node   = st.session_state.selected_node,
+        displacements   = st.session_state.displacements,
+        scale           = scale,
+        strain_energies = st.session_state.strain_energies,
+    )
+    if not st.session_state.opt_running:
         selected_points = plotly_events(
-            fig,
-            click_event  = True,
-            hover_event  = False,
-            select_event = False,
-            key          = "plot"
+            fig, click_event=True, hover_event=False,
+            select_event=False, key="plot"
         )
-
         if selected_points:
             point   = selected_points[0]
             click_x = point.get("x")
             click_y = point.get("y")
-
             if click_x is not None and click_y is not None:
                 u = st.session_state.displacements
                 best_id, best_dist = None, float("inf")
                 for nid, node in st.session_state.structure.nodes.items():
-                    if u is not None:
-                        px = node.x + u[2 * nid]
-                        pz = node.z + u[2 * nid + 1]
-                    else:
-                        px = node.x
-                        pz = node.z
-                    dist = (px - click_x) ** 2 + (pz - click_y) ** 2
+                    px = node.x + u[2*nid]   if u is not None else node.x
+                    pz = node.z + u[2*nid+1] if u is not None else node.z
+                    dist = (px - click_x)**2 + (pz - click_y)**2
                     if dist < best_dist:
                         best_dist = dist
                         best_id   = nid
-
                 if best_id is not None and best_id != st.session_state.selected_node:
                     st.session_state.selected_node = best_id
                     st.rerun()
+    else:
+        st.plotly_chart(fig, use_container_width=True)
 
-        # Legende rechts neben Plot
+    # ── Optimierungsschritt ───────────────────────────────────────────────────
+    if st.session_state.opt_running and st.session_state.strain_energies is not None:
+        ss         = st.session_state
+        structure  = ss.structure
+        start_mass = ss.opt_start_mass
+        until_unstable = ss.opt_until_unstable
+
+        opt._W1   = ss.w1
+        to_remove = opt.num_to_remove(structure, mass_reduction, start_mass) if not until_unstable else 9999
+
+        # Bulk-Queue beim ersten Start befüllen
+        if not ss.opt_bulk_done:
+            n_bulk_base = to_remove if not until_unstable else max(1, int(len(structure.nodes) * ss.bulk_fraction))
+            if n_bulk_base > 3:
+                n_bulk  = max(1, int(n_bulk_base * ss.bulk_fraction))
+                ranking = opt.rank_nodes_by_energy(structure, ss.strain_energies)
+                queue   = [nid for nid, _ in ranking[:n_bulk]]
+                ss.opt_bulk_queue = queue
+            ss.opt_bulk_done = True
+
+        def do_one_step():
+            # Bulk-Queue abarbeiten
+            while ss.opt_bulk_queue:
+                nid = ss.opt_bulk_queue[0]
+                if nid not in structure.nodes:
+                    ss.opt_bulk_queue.pop(0)
+                    continue
+                snap = opt.snapshot_node_removal(structure, nid)
+                structure.remove_node(nid)
+                if opt.is_connected_one_piece(structure) and opt.has_support(structure):
+                    ss.opt_bulk_queue.pop(0)
+                    ss.opt_iteration += 1
+                    ss.opt_log.append(f"Iter. {ss.opt_iteration}: Knoten {nid} entfernt")
+                    if ss.opt_iteration % 3 == 0 or not ss.opt_bulk_queue:
+                        u = run_solver(structure)
+                        if u is not None and float(np.max(np.abs(u))) < 1e6:
+                            ss.displacements   = u
+                            ss.strain_energies = structure.compute_strain_energies(u)
+                    return True
+                else:
+                    opt.undo_node_removal(structure, snap)
+                    ss.opt_bulk_queue.pop(0)
+                    continue
+
+            # Normale Iteration
+            to_rem = opt.num_to_remove(structure, mass_reduction, start_mass) if not until_unstable else 9999
+            if to_rem <= 0:
+                ss.opt_running    = False
+                ss.opt_steps_todo = 0
+                ss.opt_log.append(f"✅ Ziel erreicht nach {ss.opt_iteration} Iterationen.")
+                return False
+
+            removed = opt.remove_one_node(structure, ss.strain_energies, solver_fn=run_solver)
+            if removed is None:
+                ss.opt_running    = False
+                ss.opt_steps_todo = 0
+                msg = "🏁 Stabilitätsgrenze erreicht" if until_unstable else f"⛔ Kein Knoten entfernbar (Iter. {ss.opt_iteration})"
+                ss.opt_log.append(msg)
+                return False
+
+            ss.opt_iteration += 1
+            ss.opt_log.append(f"Iter. {ss.opt_iteration}: Knoten {removed} entfernt")
+
+            u = run_solver(structure)
+            if u is None:
+                ss.opt_running = False; ss.opt_steps_todo = 0
+                ss.opt_log.append("⛔ Solver fehlgeschlagen."); return False
+            if float(np.max(np.abs(u))) > 1e6:
+                ss.opt_running = False; ss.opt_steps_todo = 0
+                ss.opt_log.append(f"⚠️ Instabil bei Iter. {ss.opt_iteration}."); return False
+            ss.displacements   = u
+            ss.strain_energies = structure.compute_strain_energies(u)
+            return True
+
+        steps_target = ss.opt_steps_todo if ss.opt_steps_todo > 0 else 1
+        did = 0
+        for _ in range(steps_target):
+            if not do_one_step():
+                break
+            did += 1
+
+        if ss.opt_steps_todo > 0:
+            ss.opt_steps_todo = max(0, ss.opt_steps_todo - did)
+            if ss.opt_steps_todo == 0:
+                ss.opt_running = False
+
+        st.rerun()
+
+    else:
         st.markdown("""
         <div class='node-card' style='display:inline-block; margin-top:8px'>
             <b>Legende</b><br>

@@ -6,32 +6,6 @@ import math
 if __name__ == "__main__":
     st = Structure()
 
-    n0 = st.add_node(0, 0, bc=(True, True))     # Festlager
-    n1 = st.add_node(1, 0)
-    n2 = st.add_node(0, 1)
-    n3 = st.add_node(1, 1, force=(0, -1))
-    n4 = st.add_node(2, 0, bc=(False, True), force=(1, -1))    # Loslager (nur z fixiert)
-    n5 = st.add_node(2, 1)
-
-
-
-    # horizontale
-    st.add_spring(n0, n1)
-    st.add_spring(n2, n3)
-    st.add_spring(n1, n4)
-    st.add_spring(n3, n5)
-
-    # vertikale
-    st.add_spring(n0, n2)
-    st.add_spring(n1, n3)
-    st.add_spring(n4, n5)
-
-    # diagonale
-    st.add_spring(n0, n3)
-    st.add_spring(n1, n2)
-    st.add_spring(n1, n5)
-    st.add_spring(n4, n3)
-
     all_ids = sorted(st.nodes.keys())
     pos0 = {}
     for nid, node in st.nodes.items():
