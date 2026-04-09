@@ -34,6 +34,7 @@ Die Federsteifigkeit des Systems kann unter **„Modellparameter“** angepasst 
 # Installation und Ausführung
 
 Installation & Ausführung (Kurz-Anleitung)
+Dieses Projekt benötigt Python 3.12.
 
 1. Repository klonen und in den Projektordner wechseln:
 git clone <REPOSITORY-URL>
