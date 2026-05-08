@@ -105,6 +105,44 @@ with st.sidebar:
     width  = st.number_input("Breite",  min_value=2, max_value=200, value=4)
     height = st.number_input("Höhe",    min_value=2, max_value=200, value=4)
     EA     = st.number_input("Federsteifigkeit EA", min_value=0.1, max_value=10000.0, value=100.0, step=10.0)
+    # In app.py, in der Sidebar hinzufügen:
+
+    st.sidebar.header("📐 Gitter aus Bild erstellen")
+    
+    st.sidebar.info(
+        "**Bild-Anforderungen:**\n\n"
+        "• 🤍 **Heller Hintergrund** (weiß/hell)\n"
+        "• ⬛ **Dunkles Objekt** (schwarz/dunkelgrau)\n"
+        "• 🎨 **Hoher Kontrast** nötig\n"
+        "• 📦 **Rechteckige Form** ideal\n"
+        "• 📐 **Mindestgröße**: ~50×50 px"
+    )
+
+    uploaded_file = st.sidebar.file_uploader("Bild hochladen:", type=["png", "jpg", "jpeg", "bmp"])
+
+    if uploaded_file is not None:
+        from PIL import Image
+        from analyze import analyze_img
+    
+    # Bild laden
+        img = Image.open(uploaded_file).convert("RGB")
+        img_array = np.array(img)
+    
+    # Größe analysieren
+        mesh_size = analyze_img(img_array)
+        width_px = mesh_size["width_px"]
+        height_px = mesh_size["height_px"]
+    
+        st.sidebar.success(f"✓ Erkannte Größe: {width_px}×{height_px} px")
+    
+    # User kann Werte anpassen
+        width = st.sidebar.slider("Grid Breite:", 5, width_px, width_px)
+        height = st.sidebar.slider("Grid Höhe:", 5, height_px, height_px)
+    
+    if st.sidebar.button("🔧 Gitter erzeugen"):
+        new_structure = create_grid(width, height)
+        st.session_state["structure"] = new_structure
+        st.rerun()
 
     if st.button("🔲 Grid erzeugen", use_container_width=True):
         st.session_state.structure       = create_grid(width, height, EA=EA)
