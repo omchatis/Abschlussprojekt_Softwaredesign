@@ -81,6 +81,10 @@ Die Anwendung öffnet sich anschließend automatisch im Browser.
 
 ![UML Diagramm](UML_Diagramm.png)
 
+## UML -Diagramm Analyze Programm separat
+
+![UML Diagramm](UML_Analyze.png)
+
 # Quellen / Nutzung von KI-Tools
 
 Im Projekt wurden KI-gestützte Werkzeuge unterstützend verwendet, vor allem zur Fehlersuche, beim Debugging sowie zur Verbesserung der Code-Struktur. Außerdem dienten sie zur Erklärung und Analyse einzelner, komplexerer oder fremder Codeabschnitte.
