@@ -60,19 +60,37 @@ pip install -r requirements.txt
 streamlit run app.py
 Die Anwendung öffnet sich anschließend automatisch im Browser.
 
-6. Breite und Höhe des gewünschten Objekts eingeben.
+6. Breite und Höhe des gewünschten Objekts eingeben
+   
+   oder
 
-7. Optional: Federsteifigkeit unter „Modellparameter“ anpassen.
+   Image Datei von Träger-Körper unter "Bild hochladen" uploaden.
+   Zwei Beispiel-Images sind im Projektorder zu finden, weiter können zB. mit Paint selbst erstellt 
+   
+   ->Bild-Anforderungen:
 
-8. Simulation starten (Button „Simulation starten“).
+   • Heller Hintergrund (weiß/hell)
+   • Dunkles ausgefülltes Objekt (schwarz/dunkelgrau)
+   • Hoher Kontrast nötig
+   • Rechteckige Form ideal
+   • Mindestgröße: ~50×50 px
+   • Bild darf unschaf sein, darf Lagersymbole, Kraftpfeile oder andere Störungen beinhalten (diese werden vom Programm ignoriert)
 
-9. Masse optimieren (Button „Optimieren“).
+
+8. Gewünschter Knoten durch anklicken oder Knoten-ID eigeben, auswählen (ID wird bei Mouse-Over für jeweiligen Knoten angezeigt)
+   -> Lager- oder Last-Eigenschaften einstellen und "Änderungen übernehmen"
+  
+10. Optional: Federsteifigkeit unter „Modellparameter“ anpassen.
+
+11. Simulation starten (Button „Simulation starten“).
+
+12. Masse optimieren (Button „Optimieren“).
    Über die Buttons kann der Prozess gestartet oder gestoppt werden.
    Zusätzlich können einzelne Knoten über entsprechende Buttons entfernt werden.
 
-10. GIF oder ZIP-Datei über die jeweiligen Buttons herunterladen.
+13. GIF oder ZIP-Datei über die jeweiligen Buttons herunterladen.
 
-11. Optimale Parameter über „Parameter ermitteln“ bestimmen
+14. Optimale Parameter über „Parameter ermitteln“ bestimmen
     (zu finden unter Optimierung → Parameter).
 
 
