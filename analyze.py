@@ -52,8 +52,8 @@ def analyze_img(img_array):
     height_px = int(np.round(np.mean(inner_cols)))
 
     return {
-        "width_px": width_px,
-        "height_px": height_px
+        "width_px":  round(width_px  / 10),
+        "height_px": round(height_px / 10),
     }
 
 
