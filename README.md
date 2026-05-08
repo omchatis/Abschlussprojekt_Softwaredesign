@@ -78,7 +78,7 @@ Die Anwendung öffnet sich anschließend automatisch im Browser.
 
 
 8. Gewünschter Knoten durch anklicken oder Knoten-ID eigeben, auswählen (ID wird bei Mouse-Over für jeweiligen Knoten angezeigt)
-   -> Lager- oder Last-Eigenschaften einstellen und "Änderungen übernehmen"
+   -> Lager- oder Last-Eigenschaften einstellen und "Änderungen übernehmen" (Geeignete Kraft unter 1)
   
 10. Optional: Federsteifigkeit unter „Modellparameter“ anpassen.
 
